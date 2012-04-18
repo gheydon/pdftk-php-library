@@ -287,7 +287,7 @@ class pdftk {
 				
 			} else {
 				$letter = chr(65 + $key);
-				$command .= ' ' . $letter . '=' . $file->getFilename();
+				$command .= ' ' . $letter . '=' . escapeshellarg($file->getFilename());
 				
 			}
 		}
@@ -329,7 +329,7 @@ class pdftk {
 		//Output file paramters
 		$command .= ' output ';
 		if(!empty($this->_output_file)) {
-			$command .= $this->_output_file;
+			$command .= escapeshellarg($this->_output_file);
 
 		} else {
 			$command .= '-';
