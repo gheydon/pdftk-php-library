@@ -745,4 +745,84 @@ class pdftk_inputfile_cat extends pdftk_inputfile {
 		return $command;
 	}
 }
+
+
+class pdftk_command_data_dump extends pdftk {
+	
+	protected $utf8 = FALSE;
+	
+	function __construct($params) {
+		parent::__construct($params);
+		
+		if (isset($params['utf8'])) $this->setUtf8($params['utf8']);
+	}
+	
+	public function setUtf8($var_utf8) {
+		if (!is_bool($var_utf8)) {
+			throw new Exception('Ask Mode should be either true or false');
+		} else {
+			$this->_askmode = $var_utf8;
+		}
+
+		return $this;
+	}
+	
+	public function getCommand() {
+		
+		$this->_input_files = array(0 => reset($this->_input_files));
+		
+		$command = $this->getPreCommand();
+				
+		// TODO: Do we have other commands between the input file elements??
+		//	cat, shuffle, burst, generate_fdf, fill_form, background, multibackground,
+		//	stamp, multistamp, dump_data, dump_data_utf8, dump_data_fields, dump_data_fields_utf8,
+		//	update_info, update_info_utf8, attach_files, unpack_files
+		
+		$command .= ' data_dump' . ($this->utf8 ? '_utf8' : '');
+		
+		$command .= $this->getPostCommand();
+		
+		return $command;
+	}
+	
+	
+	
+	public function getData() {
+		$command = $this->getCommand();
+		$data = ((!is_null($this->input_data) ? $this->_input_files[$this->input_data]->getData() : null));
+		$content = $this->_exec($command, $data);
+		
+		if ($content['stderr'] != '') {
+			throw new Exception('System error <pre>' . $content['stderr'] . '</pre>');
+		}
+		else {
+			$vars = array();
+			$output = explode("\n", $content['stdout']);
+			$last_info_key = null;
+			
+			foreach ($output as $line) {
+				if (preg_match('/^([a-z0-9]+):(.*)$/i', $line, $matches)) {
+					switch ($matches[1]) {
+						case 'InfoKey':
+							$last_info_key = trim($matches[2]);
+							break;
+							
+						case 'InfoValue':
+							if ($last_info_key) {
+								$vars['Info'][$last_info_key] = $matches[2];
+								$last_info_key = null;
+							}
+							break;
+							
+						default:
+							$vars[$matches[1]] = $matches[2];
+					}
+				}
+			}
+			
+			return $vars;
+		}
+	}
+}
+
 ?>
