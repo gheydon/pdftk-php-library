@@ -4,7 +4,7 @@
 	
 	
 	
-	$pdftk = new pdftk();
+	$pdftk = pdftk::factory('cat');
 	$pdftk	->setInputFile(array("filename"=>$path . 'example.pdf', 'start_page'=>2))
 			->setInputFile(array("filename"=>$path . 'example2.pdf', 'rotation'=>90))
 			->setInputFile(array("filename"=>$path . 'example2.pdf', 'password'=>'password', 'alternate'=>'odd'));

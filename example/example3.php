@@ -4,9 +4,9 @@
 	
 	
 	
-	$pdftk = new pdftk();
+	$pdftk = pdftk::factory('cat');
 	
-	$tmp = new pdftk_inputfile(array("filename"=>$path . 'example.pdf', 'start_page'=>2));
+	$tmp = pdftk_inputfile::factory('cat', array("filename"=>$path . 'example.pdf', 'start_page'=>2));
 
 	$pdftk	->setInputFile($tmp)
 			->setInputFile(array("filename"=>$path . 'example2.pdf', 'rotation'=>90))

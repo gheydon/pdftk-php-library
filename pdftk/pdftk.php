@@ -54,6 +54,15 @@ class pdftk {
 
 
 	
+	public function factory($command, $params = array()) {
+		$class_name = 'pdftk_command_' . $command;
+		if (class_exists($class_name)) {
+			return new $class_name($params);
+		}
+		
+		return new pdftk($oarams);
+	}
+	
 	/**
 	 * Sets the level of encrpytion to be used (if owner/user password is specified).
 	 * e.g. $foo->setEncrpytionLevel(128);
@@ -237,7 +246,16 @@ class pdftk {
 			$this->_input_files[] = $_params;
 			
 		} else {
-			$this->_input_files[] = new pdftk_inputfile($_params);
+			$class_name = 'pdftk_inputfile';
+			
+			$obj_type = get_class($this);
+			if (preg_match('/_command_(.*?)$/i', $obj_type, $matches)) {
+				if (class_exists($class_name . '_' . $matches[1])) {
+					$class_name .= '_' . $matches[1];
+				}
+			}
+			
+			$this->_input_files[] = new $class_name($_params);
 			
 		}
 		return $this;
@@ -272,11 +290,8 @@ class pdftk {
 	 *
 	 * @return string
 	 */
-	public function _getCommand() {
+	protected function getPreCommand() {
 		$command = $this->_bin . " ";
-
-
-		$total_inputs = count($this->_input_files);
 
 		//Assign each PDF a letter. (limited to 24 files atm)?
 		foreach ($this->_input_files AS $key=>$file) {
@@ -305,29 +320,15 @@ class pdftk {
 		}
 
 		$command .= ((count($passwords) > 0) ? ' input_pw ' . implode(' ', $passwords) : '');
+		
+		return $command;
+	}
 
+	public function getCommand() {}
 
-
-		// TODO: Do we have other commands between the input file elements??
-		//	cat, shuffle, burst, generate_fdf, fill_form, background, multibackground,
-		//	stamp, multistamp, dump_data, dump_data_utf8, dump_data_fields, dump_data_fields_utf8,
-		//	update_info, update_info_utf8, attach_files, unpack_files
-		$command .= ' cat';
-
-
-		//Fetch command for each input file
-		if ($total_inputs > 1) {
-			foreach ($this->_input_files AS $key=>$file) {
-				$letter = chr(65 + $key);
-				$command .= ' ' . $letter . $file->_getCatCommand();
-			}
-		}
-
-
-
-
+	protected function getPostCommand() {
 		//Output file paramters
-		$command .= ' output ';
+		$command = ' output ';
 		if(!empty($this->_output_file)) {
 			$command .= escapeshellarg($this->_output_file);
 
@@ -428,7 +429,7 @@ class pdftk {
 	 * @return string
 	 */
 	public function _renderPdf() {
-		$command = $this->_getCommand();
+		$command = $this->getCommand();
 		$data = ((!is_null($this->input_data) ? $this->_input_files[$this->input_data]->getData() : null));
 		$content = $this->_exec($command, $data);
 
@@ -438,7 +439,7 @@ class pdftk {
 
 		//Error only if we expecting something from stdout and nothing was returned
 		if (is_null($this->_output_file) && mb_strlen($content['stdout'], 'utf-8') === 0)
-			throw new Exception('PDF-TK didnt return any data: ' . $this->_getCommand() . ' ' . $this->_input_files[$this->input_data]->getData());
+			throw new Exception('PDF-TK didnt return any data: ' . $this->getCommand() . ' ' . $this->_input_files[$this->input_data]->getData());
 
 		if ((int) $content['return'] > 1)
 			throw new Exception('Shell error, return code: ' . (int)$content['return']);
@@ -498,7 +499,7 @@ class pdftk {
 	 * @return string
 	 */
 	public function  __toString() {
-		return $this->_getCommand();
+		return $this->getCommand();
 	}
 }
 
@@ -509,15 +510,9 @@ class pdftk {
 
 class pdftk_inputfile {
 
-	protected $rotations = array(0=>"N", 90=>"E", 180=>"S", 270=>"W");
-
 	protected $_filename = null;		//File to readin
 	protected $_data = null;			//Direct Stream data
 	protected $_password = null;		//Allow us to decode
-	protected $_start_page = null;		//numeric or end
-	protected $_end_page = null;		//numeric or end
-	protected $_alternate = null;		//odd or even
-	protected $_rotation = null;		//N, E, S or W
 	
 	protected $_override = null;		//Incase the string is paticully complex
 
@@ -526,14 +521,21 @@ class pdftk_inputfile {
 		if (isset($_params["filename"]))	$this->setFilename($_params["filename"]);
 		if (isset($_params["data"]))		$this->setData($_params["data"]);
 		if (isset($_params["password"]))	$this->setPassword($_params["password"]);
-		if (isset($_params["start_page"]))	$this->setStartPage($_params["start_page"]);
-		if (isset($_params["end_page"]))	$this->setEndPage($_params["end_page"]);
-		if (isset($_params["alternate"]))	$this->setAlternate($_params["alternate"]);
-		if (isset($_params["rotation"]))	$this->setRotation($_params["rotation"]);
 	}
 
 
 
+	public function factory($command, $params) {
+		$class_name = 'pdftk_inputfile';
+		if (class_exists($class_name . '_' . $command)) {
+			$class_name .= '_' . $command;
+		}
+		
+		return new $class_name($params);
+	}
+	
+	
+	
 	/**
 	 * Set the filename to be read from
 	 *
@@ -609,6 +611,71 @@ class pdftk_inputfile {
 
 
 	/**
+	 * Allows the user to pass in a replacement command line string
+	 * e.g: $foo->setOverride("5-25oddW");
+	 *
+	 * @param mixed $var_end_page
+	 */
+	public function setOverride($var_override) {
+		$this->_override = $var_override;
+	}
+	
+	
+	
+	public function getCommand() {}
+}
+
+
+
+
+
+class pdftk_command_cat extends pdftk {
+	
+	public function getCommand() {
+		
+		$command = $this->getPreCommand();
+		
+		$total_inputs = count($this->_input_files);
+		
+		// TODO: Do we have other commands between the input file elements??
+		//	cat, shuffle, burst, generate_fdf, fill_form, background, multibackground,
+		//	stamp, multistamp, dump_data, dump_data_utf8, dump_data_fields, dump_data_fields_utf8,
+		//	update_info, update_info_utf8, attach_files, unpack_files
+		$command .= ' cat';
+
+		//Fetch command for each input file
+		if ($total_inputs > 1) {
+			foreach ($this->_input_files AS $key=>$file) {
+				$letter = chr(65 + $key);
+				$command .= ' ' . $letter . $file->getCommand();
+			}
+		}
+		
+		$command .= $this->getPostCommand();
+		
+		return $command;
+	}
+}
+
+class pdftk_inputfile_cat extends pdftk_inputfile {
+	
+	protected $rotations = array(0=>"N", 90=>"E", 180=>"S", 270=>"W");
+
+	protected $_start_page = null;		//numeric or end
+	protected $_end_page = null;		//numeric or end
+	protected $_alternate = null;		//odd or even
+	protected $_rotation = null;		//N, E, S or W
+
+	function  __construct($_params = array()) {
+		parent::__construct($_params);
+		
+		if (isset($_params["start_page"]))	$this->setStartPage($_params["start_page"]);
+		if (isset($_params["end_page"]))	$this->setEndPage($_params["end_page"]);
+		if (isset($_params["alternate"]))	$this->setAlternate($_params["alternate"]);
+		if (isset($_params["rotation"]))	$this->setRotation($_params["rotation"]);
+	}
+	
+	/**
 	 * Set the start page to read from
 	 * e.g: $foo->setStartPage("end");
 	 *
@@ -628,18 +695,6 @@ class pdftk_inputfile {
 	 */
 	public function setEndPage($var_end_page) {
 		$this->_end_page = $var_end_page;
-	}
-
-
-
-	/**
-	 * Allows the user to pass in a replacement command line string
-	 * e.g: $foo->setOverride("5-25oddW");
-	 *
-	 * @param mixed $var_end_page
-	 */
-	public function setOverride($var_override) {
-		$this->_override = $var_override;
 	}
 
 
@@ -673,7 +728,7 @@ class pdftk_inputfile {
 	 *
 	 * @return string
 	 */
-	public function _getCatCommand() {
+	public function getCommand() {
 
 		if ($this->_override != null) return $this->_override;
 

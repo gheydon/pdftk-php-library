@@ -4,7 +4,7 @@
 	
 	
 	
-	$pdftk = new pdftk();
+	$pdftk = pdftk::factory('cat');
 	$pdftk	->setInputFile(array("filename"=>$path . 'example.pdf', 'start_page'=>1, "end_page"=>2))
 			->setInputFile(array("filename"=>$path . 'example.pdf', 'rotation'=>90))
 			->setUserPassword("userpassword")
@@ -13,6 +13,6 @@
 			->setOutputFile($path . 'generated.pdf');				
 	
 	
-	//echo $pdftk->_getCommand();
+	//echo $pdftk->getCommand();
 	$pdftk->_renderPdf();
 ?>
