@@ -40,6 +40,7 @@ class pdftk {
 	protected $_owner_password = null;
 	protected $_user_password = null;
 	protected $_encryption = 128;
+	protected $_flattenmode = FALSE;
 
 
 	protected $input_data = null;	//We'll use this to store the key for the input file.
@@ -50,6 +51,7 @@ class pdftk {
 		if (isset($params['encryption_level'])) $this->setEncryptionLevel($params['encryption_level']);
 		if (isset($params['verbose_mode'])) $this->setVerboseMode($params['verbose_mode']);
 		if (isset($params['ask_mode'])) $this->setAskMode($params['ask_mode']);
+		if (isset($params['flatten_mode'])) $this->setFlatten($params['flatten_mode']);
 	}
 
 
@@ -119,6 +121,23 @@ class pdftk {
 
 
 
+	public function setFlattenMode($var_flattenmode) {
+		if (!is_bool($var_flattenmode)) {
+			throw new Exception('Flatten Mode should be either true or false');
+		} else {
+			$this->_flattenmode = $var_flattenmode;
+		}
+		
+		return $this;
+	}
+	
+	
+
+	public function getFlattenMode() {
+		return $this->_flattenmode;
+	}
+	
+	
 	/**
 	 * Sets the owners password for the ouput file
 	 * $foo->setOwnerPassword("bar");
@@ -361,6 +380,9 @@ class pdftk {
 			
 		}
 
+
+		// Flatten Mode
+		$command .= (($this->_flattenmode) ? ' flatten' : '');
 
 		//Verbose Mode
 		$command .= (($this->_verbose) ? ' verbose' : '');
