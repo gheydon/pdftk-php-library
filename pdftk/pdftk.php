@@ -921,4 +921,313 @@ class pdftk_command_dump_data_fields extends pdftk {
 	}
 }
 
+class pdftk_command_fill_form extends pdftk {
+	
+	protected $fields = null;
+	protected $field_data = array();
+	
+	function __construct($params) {
+		parent::__construct($params);
+		
+		if (isset($params['field_data'])) $this->setFieldData($params['field_data']);
+	}
+	
+	
+	
+	public function setFields($fields) {
+		$this->fields = $fields;
+		
+		return $this;
+	}
+	
+	
+	
+	public function setFieldData($field_data) {
+		$this->field_data = $field_data;
+		
+		return $this;
+	}
+	
+	
+	
+	public function setInputFile($_params) {
+		parent::setInputFile($_params);
+		
+		if (!$this->fields) {
+			$fields = pdftk::factory('dump_data_fields')->setInputFile(end($this->_input_files))->getData();
+			
+			$this->setFields($fields);
+		}
+		
+		return $this;
+	}
+	
+	public function getCommand() {
+		
+		$this->_input_files = array(0 => end($this->_input_files));
+		
+		$command = $this->getPreCommand();
+			
+		$fdf_data_strings = $fdf_data_names = $fields_hidden = $fields_readonly = array();	
+		foreach ($this->fields as $fn => $field) {
+			if (isset($this->field_data[$fn])) {
+				if (in_array($field['type'], array('Text', 'Combo', 'List'))) {
+					$fdf_data_strings[$fn] = $this->field_data[$fn];
+				}
+				elseif (in_array($field['type'], array('Checkbox', 'Radio'))) {
+					$fdf_data_names[$fn] = $this->field_data[$fn];
+				}
+			}
+		}
+				
+		$fdf = $this->forgeFdf('', $fdf_data_strings, $fdf_data_names, $fields_hidden, $fields_readonly);
+		
+		// Save the fdf file temporarily - make sure the server has write permissions in the folder you specify in tempnam()
+		$fdf_fn = tempnam(".", "fdf");
+		$fp = fopen($fdf_fn, 'w');
+			
+		if($fp) {
+			fwrite($fp, $fdf);
+			fclose($fp);
+		}
+		
+		
+		$command .= ' fill_form ' . escapeshellarg($fdf_fn);
+		
+		$command .= $this->getPostCommand();
+		
+		return $command;
+		
+	}
+	
+	protected function forgeFdf($pdf_form_url, &$fdf_data_strings, &$fdf_data_names, &$fields_hidden, &$fields_readonly) {
+		
+	/* forge_fdf, by Sid Steward
+	   version 1.1
+	   visit: www.pdfhacks.com/forge_fdf/
+		   
+	   PDF can be particular about CR and LF characters, so I spelled them out in hex: CR == \x0d : LF == \x0a
+		   
+	*/
+		$fdf = "%FDF-1.2\x0d%\xe2\xe3\xcf\xd3\x0d\x0a"; // header
+		$fdf.= "1 0 obj\x0d<< "; // open the Root dictionary
+		$fdf.= "\x0d/FDF << "; // open the FDF dictionary
+		$fdf.= "/Fields [ "; // open the form Fields array
+			
+		$fdf_data_strings = $this->burstDotsIntoArrays( $fdf_data_strings );
+		$this->forgeFdfFieldsStrings( $fdf,
+					$fdf_data_strings,
+					$fields_hidden,
+					$fields_readonly );
+			
+		$fdf_data_names= $this->burstDotsIntoArrays( $fdf_data_names );
+		$this->forgeFdfFieldsNames( $fdf,
+				  $fdf_data_names,
+				  $fields_hidden,
+				  $fields_readonly );
+			
+		$fdf.= "] \x0d"; // close the Fields array
+			
+		// the PDF form filename or URL, if given
+		if( $pdf_form_url ) {
+			$fdf.= "/F (".$this->escapePdfString($pdf_form_url).") \x0d";
+		}
+			
+		$fdf.= ">> \x0d"; // close the FDF dictionary
+		$fdf.= ">> \x0dendobj\x0d"; // close the Root dictionary
+			
+		// trailer; note the "1 0 R" reference to "1 0 obj" above
+		$fdf.= "trailer\x0d<<\x0d/Root 1 0 R \x0d\x0d>>\x0d";
+		$fdf.= "%%EOF\x0d\x0a";
+			
+		return $fdf;
+	}
+		
+	public function escapePdfString( $ss ) {
+	  $backslash= chr(0x5c);
+	  $ss_esc= '';
+	  $ss_len= strlen( $ss );
+	  for( $ii= 0; $ii< $ss_len; ++$ii ) {
+		if( ord($ss{$ii})== 0x28 ||  // open paren
+		ord($ss{$ii})== 0x29 ||  // close paren
+		ord($ss{$ii})== 0x5c )   // backslash
+		  {
+		$ss_esc.= $backslash.$ss{$ii}; // escape the character w/ backslash
+		  }
+		else if( ord($ss{$ii}) < 32 || 126 < ord($ss{$ii}) ) {
+		  $ss_esc.= sprintf( "\\%03o", ord($ss{$ii}) ); // use an octal code
+		}
+		else {
+		  $ss_esc.= $ss{$ii};
+		}
+	  }
+	  return $ss_esc;
+	}
+
+	protected function escapePdfName( $ss ) {
+	  $ss_esc= '';
+	  $ss_len= strlen( $ss );
+	  for( $ii= 0; $ii< $ss_len; ++$ii ) {
+		if( ord($ss{$ii}) < 33 || 126 < ord($ss{$ii}) || 
+		ord($ss{$ii})== 0x23 ) // hash mark
+		  {
+		$ss_esc.= sprintf( "#%02x", ord($ss{$ii}) ); // use a hex code
+		  }
+		else {
+		  $ss_esc.= $ss{$ii};
+		}
+	  }
+	  return $ss_esc;
+	}
+
+	// In PDF, partial form field names are combined using periods to
+	// yield the full form field name; we'll take these dot-delimited
+	// names and then expand them into nested arrays, here; takes
+	// an array that uses dot-delimited names and returns a tree of arrays;
+	//
+	protected function burstDotsIntoArrays( &$fdf_data_old ) {
+	  $fdf_data_new= array();
+		
+	  foreach( $fdf_data_old as $key => $value ) {
+		$key_split= explode( '.', (string)$key, 2 );
+		
+		if( count($key_split)== 2 ) { // handle dot
+		  if( !array_key_exists( (string)($key_split[0]), $fdf_data_new ) ) {
+		$fdf_data_new[ (string)($key_split[0]) ]= array();
+		  }
+		  if( gettype( $fdf_data_new[ (string)($key_split[0]) ] )!= 'array' ) {
+		// this new key collides with an existing name; this shouldn't happen;
+		// associate string value with the special empty key in array, anyhow;
+		
+		$fdf_data_new[ (string)($key_split[0]) ]= 
+		  array( '' => $fdf_data_new[ (string)($key_split[0]) ] );
+		  }
+		
+		  $fdf_data_new[ (string)($key_split[0]) ][ (string)($key_split[1]) ]= $value;
+		}
+		else { // no dot
+		  if( array_key_exists( (string)($key_split[0]), $fdf_data_new ) &&
+		  gettype( $fdf_data_new[ (string)($key_split[0]) ] )== 'array' )
+		{ // this key collides with an existing array; this shouldn't happen;
+		  // associate string value with the special empty key in array, anyhow;
+		
+		  $fdf_data_new[ (string)$key ]['']= $value;
+		}
+		  else { // simply copy
+		$fdf_data_new[ (string)$key ]= $value;
+		  }
+		}
+	  }
+		
+	  foreach( $fdf_data_new as $key => $value ) {
+		if( gettype($value)== 'array' ) {
+		  $fdf_data_new[ (string)$key ]= $this->burstDotsIntoArrays( $value ); // recurse
+		}
+	  }
+		
+	  return $fdf_data_new;
+	}
+
+	protected function forgeFdfFieldsFlags( &$fdf,
+				$field_name,
+				&$fields_hidden,
+				&$fields_readonly ) {
+	  if( in_array( $field_name, $fields_hidden ) )
+		$fdf.= "/SetF 2 "; // set
+	  else
+		$fdf.= "/ClrF 2 "; // clear
+		
+	  if( in_array( $field_name, $fields_readonly ) )
+		$fdf.= "/SetFf 1 "; // set
+	  else
+		$fdf.= "/ClrFf 1 "; // clear
+	}
+
+	protected function forgeFdfFields( &$fdf,
+			  &$fdf_data,
+			  &$fields_hidden,
+			  &$fields_readonly,
+			  $accumulated_name,
+			  $strings_b ) // true <==> $fdf_data contains string data
+		 //
+		 // string data is used for text fields, combo boxes and list boxes;
+		 // name data is used for checkboxes and radio buttons, and
+		 // /Yes and /Off are commonly used for true and false
+	{
+	  if( 0< strlen( $accumulated_name ) ) {
+		$accumulated_name.= '.'; // append period seperator
+	  }
+		
+	  foreach( $fdf_data as $key => $value ) {
+		// we use string casts to prevent numeric strings from being silently converted to numbers
+		
+		$fdf.= "<< "; // open dictionary
+		
+		if( gettype($value)== 'array' ) { // parent; recurse
+		  $fdf.= "/T (".$this->escapePdfString( (string)$key ).") "; // partial field name
+		  $fdf.= "/Kids [ ";                                    // open Kids array
+		
+		  // recurse
+		  $this->forgeFdfFields( $fdf,
+				$value,
+				$fields_hidden,
+				$fields_readonly,
+				$accumulated_name. (string)$key,
+				$strings_b );
+		
+		  $fdf.= "] "; // close Kids array
+		}
+		else {
+		
+		  // field name
+		  $fdf.= "/T (".$this->escapePdfString( (string)$key ).") ";
+		
+		  // field value
+		  if( $strings_b ) { // string
+		$fdf.= "/V (".$this->escapePdfString( (string)$value ).") ";
+		  }
+		  else { // name
+		$fdf.= "/V /".$this->escapePdfName( (string)$value ). " ";
+		  }
+		
+		  // field flags
+		  $this->forgeFdfFieldsFlags( $fdf,
+					  $accumulated_name. (string)$key,
+					  $fields_hidden,
+					  $fields_readonly );
+		}
+		
+		$fdf.= ">> \x0d"; // close dictionary
+	  }
+	}
+
+
+	protected function forgeFdfFieldsStrings( &$fdf,
+				  &$fdf_data_strings,
+				  &$fields_hidden,
+				  &$fields_readonly ) {
+	  return
+		$this->forgeFdfFields( $fdf,
+				  $fdf_data_strings,
+				  $fields_hidden,
+				  $fields_readonly,
+				  '',
+				  true ); // true => strings data
+	}
+
+
+	protected function forgeFdfFieldsNames( &$fdf,
+				&$fdf_data_names,
+				&$fields_hidden,
+				&$fields_readonly ) {
+	  return
+		$this->forgeFdfFields( $fdf,
+				  $fdf_data_names,
+				  $fields_hidden,
+				  $fields_readonly,
+				  '',
+				  false ); // false => names data
+	}
+	
+}
 ?>
