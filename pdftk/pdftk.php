@@ -801,7 +801,7 @@ class pdftk_command_data_dump extends pdftk {
 			$last_info_key = null;
 			
 			foreach ($output as $line) {
-				if (preg_match('/^([a-z0-9]+):(.*)$/i', $line, $matches)) {
+				if (preg_match('/^([a-z0-9]+): (.*)$/i', $line, $matches)) {
 					switch ($matches[1]) {
 						case 'InfoKey':
 							$last_info_key = trim($matches[2]);
@@ -821,6 +821,80 @@ class pdftk_command_data_dump extends pdftk {
 			}
 			
 			return $vars;
+		}
+	}
+}
+
+
+class pdftk_command_dump_data_fields extends pdftk {
+	
+	protected $utf8 = FALSE;
+	
+	function __construct($params) {
+		parent::__construct($params);
+		
+		if (isset($params['utf8'])) $this->setUtf8($params['utf8']);
+	}
+	
+	public function setUtf8($var_utf8) {
+		if (!is_bool($var_utf8)) {
+			throw new Exception('Ask Mode should be either true or false');
+		} else {
+			$this->_askmode = $var_utf8;
+		}
+
+		return $this;
+	}
+	
+	public function getCommand() {
+		
+		$this->_input_files = array(0 => reset($this->_input_files));
+		
+		$command = $this->getPreCommand();
+				
+		// TODO: Do we have other commands between the input file elements??
+		//	cat, shuffle, burst, generate_fdf, fill_form, background, multibackground,
+		//	stamp, multistamp, dump_data, dump_data_utf8, dump_data_fields, dump_data_fields_utf8,
+		//	update_info, update_info_utf8, attach_files, unpack_files
+		
+		$command .= ' dump_data_fields' . ($this->utf8 ? '_utf8' : '');
+		
+		$command .= $this->getPostCommand();
+		
+		return $command;
+	}
+	
+	
+	
+	public function getData() {
+		$command = $this->getCommand();
+		$data = ((!is_null($this->input_data) ? $this->_input_files[$this->input_data]->getData() : null));
+		$content = $this->_exec($command, $data);
+		
+		if ($content['stderr'] != '') {
+			throw new Exception('System error <pre>' . $content['stderr'] . '</pre>');
+		}
+		else {
+			$fields = array();
+			$output = explode("\n", $content['stdout']);
+			$field = null;
+			
+			foreach ($output as $line) {				
+				if ($line == '---') {					
+					if ($field) {
+						$fields[$field['name']] = $field;
+					}
+					$field = array();
+				}
+				elseif (preg_match('/^Field([a-z]+): (.*)$/i', $line, $matches)) {
+					$field[strtolower($matches[1])] = $matches[2];
+				}
+			}
+			if ($field) {
+				$fields[$field['name']] = $field;
+			}
+			
+			return $fields;
 		}
 	}
 }
